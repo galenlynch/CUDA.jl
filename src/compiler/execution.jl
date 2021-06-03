@@ -312,6 +312,18 @@ end
     ir, kernel = @timeit_ci "emit_llvm" GPUCompiler.emit_llvm(job, method_instance, world)
     code = @timeit_ci "emit_asm" GPUCompiler.emit_asm(job, ir, kernel; format=LLVM.API.LLVMAssemblyFile)
 
+    # remove extraneous debug info on lower debug levels
+    if Base.JLOptions().debug_level < 2
+        # even though we won't actually pass `--device-debug` to ptxas, `.target debug` also
+        # seems to enable debug-mode compilation, which triggers NVIDIA bug #3305774
+        #
+        # it would be better if GPUCompiler.jl could configure LLVM to only emit location
+        # tracking instructions without actual DWARF info. this used to be possible using
+        # LocTrackingOnly/EmitDebugInfo from D4234, but got removed in favor of NoDebug in
+        # D18808, seemingly breaking the use case of only emitting `.loc` instructions...
+        code = replace(code, r"(\.target .+), debug" => s"\1")
+    end
+
     # check if we'll need the device runtime
     undefined_fs = filter(collect(functions(ir))) do f
         isdeclaration(f) && !LLVM.isintrinsic(f)
